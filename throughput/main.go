@@ -200,7 +200,7 @@ type result struct {
 
 func simple_ascii() (r result, err error) {
 	const desc = "Only ASCII chars"
-	data := random_string_of_bytes(1024*2048+13, ascii_printable+control_chars)
+	data := random_string_of_bytes(1024*1024, ascii_printable+control_chars)
 	duration, data_sz, reps, err := benchmark_data(desc, data, opts)
 	if err != nil {
 		return result{}, err
@@ -210,7 +210,7 @@ func simple_ascii() (r result, err error) {
 
 func unicode() (r result, err error) {
 	const desc = "Unicode chars"
-	data := strings.Repeat(chinese_lorem_ipsum+misc_unicode+control_chars, 1024)
+	data := strings.Repeat(chinese_lorem_ipsum+misc_unicode+control_chars, 576)
 	duration, data_sz, reps, err := benchmark_data(desc, data, opts)
 	if err != nil {
 		return result{}, err
@@ -219,7 +219,7 @@ func unicode() (r result, err error) {
 }
 
 func unique_unicode() (r result, err error) {
-	const cell_count = 256 * 1024
+	const cell_count = 144 * 1024
 	const combining_count = 0x70
 	var data strings.Builder
 	data.Grow(cell_count * 10)

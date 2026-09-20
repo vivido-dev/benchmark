@@ -75,8 +75,8 @@ func (t *winTerm) WriteAllString(data string) error {
 	b := []byte(data)
 	for len(b) > 0 {
 		chunkLen := len(b)
-		if chunkLen > 64*1024 {
-			chunkLen = 64 * 1024
+		if chunkLen > 1024*1024 {
+			chunkLen = 1024 * 1024
 		}
 		var written uint32
 		err := windows.WriteFile(t.outHandle, b[:chunkLen], &written, nil)
