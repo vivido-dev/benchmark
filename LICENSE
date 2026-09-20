@@ -672,3 +672,13 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
+
+----------------------------------------------------------------------
+
+[benchmark]
+Copyright (C) 2018 Kovid Goyal <kovid at kovidgoyal.net>
+Copyright (C) 2026 Wensheng Wang
+
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions; see above for details.
