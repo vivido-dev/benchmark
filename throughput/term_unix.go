@@ -25,7 +25,7 @@ func openControllingTerm() (terminal, error) {
 	fd := int(f.Fd())
 	t := &unixTerm{file: f}
 
-	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	termios, err := unix.IoctlGetTermios(fd, ioctlReadTermios)
 	if err == nil {
 		t.origTermios = *termios
 		t.restore = true
@@ -40,7 +40,7 @@ func openControllingTerm() (terminal, error) {
 		raw.Cc[unix.VMIN] = 1
 		raw.Cc[unix.VTIME] = 0
 
-		_ = unix.IoctlSetTermios(fd, unix.TCSETS, &raw)
+		_ = unix.IoctlSetTermios(fd, ioctlWriteTermios, &raw)
 	}
 
 	return t, nil
@@ -48,7 +48,7 @@ func openControllingTerm() (terminal, error) {
 
 func (t *unixTerm) RestoreAndClose() {
 	if t.restore {
-		_ = unix.IoctlSetTermios(int(t.file.Fd()), unix.TCSETS, &t.origTermios)
+		_ = unix.IoctlSetTermios(int(t.file.Fd()), ioctlWriteTermios, &t.origTermios)
 		t.restore = false
 	}
 	if t.file != os.Stdin && t.file != nil {
