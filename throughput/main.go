@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"flag"
@@ -11,6 +12,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -44,6 +46,11 @@ const misc_unicode = "‘’“”‹›«»‚„ 😀😛😇😈😉😍😎�
 	"îïðñòóôõöøœš ùúûüýÿþªºαΩ∞ ū̀n̂o᷵H̨a̠b̡͓̐c̡͓̐X̡͓̐"
 
 var opts Options
+var latencySamples int
+var seed uint64
+var originalSizes bool
+var exportDir, replayDir string
+var random = rand.New(rand.NewPCG(1, 2))
 
 func terminalSetState(alternateScreen bool) string {
 	var sb strings.Builder
@@ -81,6 +88,26 @@ func terminalResetState(alternateScreen bool) string {
 }
 
 func benchmark_data(description string, data string, opts Options) (duration time.Duration, sent_data_size int, reps int, err error) {
+	name := fmt.Sprintf("%x.bin", sha256.Sum256([]byte(description)))
+	if replayDir != "" {
+		var raw []byte
+		raw, err = os.ReadFile(filepath.Join(replayDir, name))
+		if err != nil {
+			return
+		}
+		data = string(raw)
+	}
+	if exportDir != "" {
+		if err = os.MkdirAll(exportDir, 0700); err != nil {
+			return
+		}
+		err = os.WriteFile(filepath.Join(exportDir, name), []byte(data), 0600)
+		if err == nil {
+			fmt.Fprintf(os.Stderr, "%s bytes=%d sha256=%x\n", description, len(data), sha256.Sum256([]byte(data)))
+		}
+		return 0, len(data), 0, err
+	}
+
 	term, err := openControllingTerm()
 	if err != nil {
 		return 0, 0, 0, err
@@ -186,7 +213,7 @@ func random_string_of_bytes(n int, alphabet string) string {
 	b := make([]byte, n)
 	al := len(alphabet)
 	for i := range n {
-		b[i] = alphabet[rand.IntN(al)]
+		b[i] = alphabet[random.IntN(al)]
 	}
 	return string(b)
 }
@@ -200,7 +227,11 @@ type result struct {
 
 func simple_ascii() (r result, err error) {
 	const desc = "Only ASCII chars"
-	data := random_string_of_bytes(1024*1024, ascii_printable+control_chars)
+	size := 1024 * 1024
+	if originalSizes {
+		size = 1024*2048 + 13
+	}
+	data := random_string_of_bytes(size, ascii_printable+control_chars)
 	duration, data_sz, reps, err := benchmark_data(desc, data, opts)
 	if err != nil {
 		return result{}, err
@@ -210,7 +241,11 @@ func simple_ascii() (r result, err error) {
 
 func unicode() (r result, err error) {
 	const desc = "Unicode chars"
-	data := strings.Repeat(chinese_lorem_ipsum+misc_unicode+control_chars, 576)
+	count := 576
+	if originalSizes {
+		count = 1024
+	}
+	data := strings.Repeat(chinese_lorem_ipsum+misc_unicode+control_chars, count)
 	duration, data_sz, reps, err := benchmark_data(desc, data, opts)
 	if err != nil {
 		return result{}, err
@@ -219,7 +254,10 @@ func unicode() (r result, err error) {
 }
 
 func unique_unicode() (r result, err error) {
-	const cell_count = 144 * 1024
+	cell_count := 144 * 1024
+	if originalSizes {
+		cell_count = 256 * 1024
+	}
 	const combining_count = 0x70
 	var data strings.Builder
 	data.Grow(cell_count * 10)
@@ -244,10 +282,10 @@ func ascii_with_csi() (r result, err error) {
 	out := make([]byte, 0, sz+48)
 	chunk := ""
 	for len(out) < sz {
-		q := rand.IntN(100)
+		q := random.IntN(100)
 		switch {
 		case (q < 10):
-			chunk = random_string_of_bytes(rand.IntN(72)+1, ascii_printable+control_chars)
+			chunk = random_string_of_bytes(random.IntN(72)+1, ascii_printable+control_chars)
 		case (10 <= q && q < 30):
 			chunk = "\x1b[m\x1b[?1h\x1b[H"
 		case (30 <= q && q < 40):
@@ -340,10 +378,13 @@ func round(d time.Duration, digits int) time.Duration {
 }
 
 func present_result(r result, col_width int) {
+	if exportDir != "" {
+		return
+	}
 	rate := float64(r.data_sz) / r.duration.Seconds()
 	rate /= 1024. * 1024.
 	f := fmt.Sprintf("%%-%ds", col_width)
-	fmt.Printf("  "+f+" : %-10v @ \x1b[32m%-7.1f\x1b[m MB/s\n", r.desc, round(r.duration, 2), rate)
+	fmt.Printf("  "+f+" : %-10v @ \x1b[32m%-7.1f\x1b[m MiB/s\n", r.desc, round(r.duration, 2), rate)
 }
 
 func all_benchmarks() []string {
@@ -353,11 +394,11 @@ func all_benchmarks() []string {
 }
 
 func warmup_data() string {
-	num_colors := 1000 + rand.IntN(1001)
+	num_colors := 1000 + random.IntN(1001)
 	type rgb struct{ r, g, b uint8 }
 	colors := make([]rgb, num_colors)
 	for i := range colors {
-		colors[i] = rgb{uint8(rand.IntN(256)), uint8(rand.IntN(256)), uint8(rand.IntN(256))}
+		colors[i] = rgb{uint8(random.IntN(256)), uint8(random.IntN(256)), uint8(random.IntN(256))}
 	}
 	colored_text := ascii_printable + control_chars + chinese_lorem_ipsum
 	var b strings.Builder
@@ -429,6 +470,9 @@ func runBenchmarks(args []string) (err error) {
 		results = append(results, r)
 	}
 
+	if exportDir != "" {
+		return nil
+	}
 	fmt.Print(reset)
 	fmt.Println(
 		"These results measure the time it takes the terminal to fully parse all the data sent to it.")
@@ -455,7 +499,7 @@ func main() {
 		fmt.Fprintln(flag.CommandLine.Output(), "Benchmarking works by sending large amounts of data to the terminal device")
 		fmt.Fprintln(flag.CommandLine.Output(), "and waiting for the terminal to process the data and respond to queries sent to it.")
 		fmt.Fprintln(flag.CommandLine.Output(), "By default rendering is suppressed during benchmarking to focus on parser performance.")
-		fmt.Fprintln(flag.CommandLine.Output(), "Use the --render flag to enable it.\n")
+		fmt.Fprintln(flag.CommandLine.Output(), "Use the --render flag to enable it.")
 		fmt.Fprintln(flag.CommandLine.Output(), "Options:")
 		flag.PrintDefaults()
 		fmt.Fprintln(flag.CommandLine.Output(), "\nAvailable benchmarks:")
@@ -466,7 +510,13 @@ func main() {
 	flag.BoolVar(&opts.WithScrollback, "with-scrollback", false, "Use the main screen instead of the alt screen so speed of scrollback is also tested")
 	flag.BoolVar(&opts.Render, "render", false, "Allow rendering of the data sent during tests. Note that modern terminals render asynchronously, so timings do not generally reflect render performance.")
 
+	flag.Uint64Var(&seed, "seed", 1, "Deterministic PCG payload seed")
+	flag.BoolVar(&originalSizes, "original-sizes", false, "Use original Kitty text payload sizes, including oversized synchronized blocks")
+	flag.StringVar(&exportDir, "export", "", "Export payloads without opening a terminal")
+	flag.StringVar(&replayDir, "replay", "", "Replay previously exported payloads")
+	flag.IntVar(&latencySamples, "latency-samples", 0, "Measure idle and loaded status-query latency after throughput")
 	flag.Parse()
+	random = rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 
 	opts.Repetitions = max(1, opts.Repetitions)
 
@@ -483,4 +533,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Benchmark failed: %v\n", err)
 		os.Exit(1)
 	}
+	if latencySamples > 0 && exportDir == "" {
+		if err := measureLatency(latencySamples); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+
 }

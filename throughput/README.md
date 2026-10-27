@@ -90,3 +90,47 @@ Enable live rendering during benchmark:
 ```powershell
 .\benchmark.exe --render --repetitions 10 csi
 ```
+
+## Reproducible performance comparisons
+
+`--seed 1` selects a deterministic PCG stream. Keep the same workload selection and
+order between generated runs, or use exported payloads for exact replay:
+
+```sh
+go run . --seed 1 --export /tmp/terminal-corpus
+go run . --replay /tmp/terminal-corpus --repetitions 200
+```
+
+Export does not open a terminal. Each payload is stored under the SHA-256 of its
+workload description; stderr records its byte length and content SHA-256. Export
+and replay include the warmup. `--original-sizes` restores the report's original
+ASCII, Unicode, and unique-Unicode payload sizes; the default retains this tool's
+smaller text payloads. It does not change image framing. Keep these corpus variants
+separate: oversized synchronized blocks can trigger intentional flushes.
+
+For in-memory measurements, Vivido's `terminal_stream` example accepts
+`parser|terminal PAYLOAD [ITERATIONS]`. Parser mode exercises the ANSI adapter
+with a counting handler; terminal mode runs the real grid and Kitty decoder.
+Neither measures PTY transport or GPU presentation. Report these independently
+from application throughput and frame/input latency.
+
+`--latency-samples 100` also reports idle and loaded terminal-status query p50,
+p99, and maximum latency. A loaded sample writes 106,496 bytes of ordinary text
+before its query, then waits for the reply before starting the next sample. This
+measures output-drain plus query latency, not keyboard latency or GPU presentation.
+Queries have a five-second deadline and bounded reply capture.
+
+For application comparisons on macOS, build both Vivido executables first, then use
+`vivido/scripts/performance-e2e.py` with `--before`, `--after`, `--benchmark`,
+`--corpus`, and a new `--output` directory. It alternates process order, uses a
+120×40 real PTY and the production headless GPU renderer, and covers synchronized,
+rendering, scrollback, and rendering-with-scrollback modes. No compilation or other
+benchmark should run concurrently. `performance-summary.py OUTPUT/results.jsonl`
+reports medians and the throughput/query acceptance gates. Binary/corpus hashes,
+raw samples, CPU time, and peak resident memory remain in the output directory.
+
+Vivido's optional `--features perf` build additionally writes numeric counters to
+`VIVIDO_PERF_FILE` on orderly exit. Run it separately from uninstrumented timing
+comparisons: atomic allocation accounting changes performance. It includes all
+Rust allocations through the application allocator, not GPU or foreign-library
+allocations, so report peak RSS alongside it.
